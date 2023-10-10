@@ -34,7 +34,7 @@ TimerThread timer;
 // 全局运行次数
 static int running_count = 0;
 // 全局核
-static Mat kernel = getStructuringElement(MORPH_RECT, Size(5, 5));
+static Mat kernel = getStructuringElement(MORPH_RECT, Size(2, 2));
 
 void debug() {
     if (running_count % 20 == 0)
@@ -50,9 +50,11 @@ void PreProcessFrame(Mat &before, Mat &after, int c) {
     Scalar max = color.get_max(c);
 
     inRange(before, min, max, after);
+    erode(after, after, kernel, Point(-1, -1), 2);
+    dilate(after, after, kernel, Point(-1, -1), 5);
     // morphology
-    morphologyEx(after, after, MORPH_OPEN, kernel);
-    morphologyEx(after, after, MORPH_CLOSE, kernel);
+//    morphologyEx(after, after, MORPH_OPEN, kernel);
+//    morphologyEx(after, after, MORPH_CLOSE, kernel);
 }
 
 
@@ -82,103 +84,182 @@ bool checkColorBarExist(Mat &curr_frame, int c, bool draw_line = true) {
             cv::line(curr_frame, pt1, pt2, Scalar(0, 0, 0), 5, cv::LINE_AA);
         }
     }
-    return horizontal_lines > 2;
+
+    if (horizontal_lines > 1) {
+        cout << "horizontal_lines: " << horizontal_lines << endl;
+        return true;
+    }
+    return false;
 }
 
+// deprecated
+//int getCenterLine(Mat &curr_frame, bool draw_line = true) {
+//    int sum = 0;
+//    for (int i = 0; i < curr_frame.rows; i++) {
+//        int l, r;
+//        for (l = 1; l < curr_frame.cols - 1; l += 2) {
+//            int c = curr_frame.at<uchar>(i, l) +
+//                    curr_frame.at<uchar>(i, l + 1) +
+//                    curr_frame.at<uchar>(i, l - 1);
+//            if (c == 255 * 3)
+//                break;
+//        }
+//        for (r = curr_frame.cols - 2; r >= 1; r -= 2) {
+//            int c = curr_frame.at<uchar>(i, r) +
+//                    curr_frame.at<uchar>(i, r + 1) +
+//                    curr_frame.at<uchar>(i, r - 1);
+//            if (c == 255 * 3)
+//                break;
+//        }
+//
+//        int center = (l + r) >> 1;
+//        sum += center;
+//        if (draw_line)
+//            curr_frame.at<uchar>(i, center) = 0;
+//    }
+//
+//    int average_line = sum / curr_frame.rows;
+//    if (average_line < 0 || average_line > curr_frame.rows)
+//        return curr_frame.rows / 2; // default value
+//    else
+//        return average_line;
+//}
 
-int getCenterLine(Mat &curr_frame, bool draw_line = true) {
-    int sum = 0;
+//! \brief 最小二乘法
+//! \param data 数据
+//! \param len 数据长度
+//! \return 斜率
+double leastSquaresMethod(const int data[], int len) {
+    double sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+    for (int i = 0; i < len; i++) {
+        sum_x += i;
+        sum_y += data[i];
+        sum_xx += i * i;
+        sum_xy += i * data[i];
+    }
+    double k = (len * sum_xy - sum_x * sum_y) / (len * sum_xx - sum_x * sum_x);
+    return k;
+}
+
+int left_arr[300], right_arr[300];
+
+void getCenterLine(Mat &curr_frame, int &center, double &k, bool draw_line = true) {
+
+
+    // 获取道路边缘
     for (int i = 0; i < curr_frame.rows; i++) {
         int l, r;
-        for (l = 1; l < curr_frame.cols - 1; l++) {
+        for (l = 1; l < curr_frame.cols - 1; l += 2) {
             int c = curr_frame.at<uchar>(i, l) +
                     curr_frame.at<uchar>(i, l + 1) +
-                    curr_frame.at<uchar>(i, l - 1);
-            if (c == 255 * 3)
+                    curr_frame.at<uchar>(i, l - 1) +
+                    curr_frame.at<uchar>(i, l + 2) +
+                    curr_frame.at<uchar>(i, l - 2);
+            if (c == 255 * 5)
                 break;
         }
-        for (r = curr_frame.cols - 2; r >= 1; r--) {
+        for (r = curr_frame.cols - 2; r >= 1; r -= 2) {
             int c = curr_frame.at<uchar>(i, r) +
                     curr_frame.at<uchar>(i, r + 1) +
-                    curr_frame.at<uchar>(i, r - 1);
-            if (c == 255 * 3)
+                    curr_frame.at<uchar>(i, r - 1) +
+                    curr_frame.at<uchar>(i, r + 2) +
+                    curr_frame.at<uchar>(i, r - 2);
+            if (c == 255 * 5)
                 break;
         }
-
-        int center = (l + r) >> 1;
-        sum += center;
-        if (draw_line)
-            curr_frame.at<uchar>(i, center) = 0;
+        left_arr[i] = l;
+        right_arr[i] = r;
     }
 
-    int average_line = sum / curr_frame.rows;
-    if (average_line < 0 || average_line > curr_frame.rows)
-        return curr_frame.rows / 2; // default value
-    else
-        return average_line;
-}
+    // 算出中线
+    int sum = 0;
+    for (int i = 0; i < curr_frame.rows; i++) {
+        int c = (left_arr[i] + right_arr[i]) >> 1;
+        sum += c;
+        if (draw_line)
+            curr_frame.at<uchar>(i, c) = 0;
+    }
+    center = sum / curr_frame.rows;
 
+    // 最小二乘法
+    double left_k, right_k;
+    left_k = leastSquaresMethod(left_arr, 300);
+    right_k = leastSquaresMethod(right_arr, 300);
+    k = (left_k + right_k) / 2;
+}
 
 void ProcessFrame() {
 
     // white binary frame
     PreProcessFrame(raw_frame, binary_frame, white);
-    static float goal_average = 200;                       // 目标中线均值
-    auto curr_average = (float) getCenterLine(binary_frame); // 当前中线均值
-
+    static int goal_average = 200;                       // 目标中线均值
+    double k;
+    int curr_average;
+    getCenterLine(binary_frame, curr_average, k);   // 当前中线均值
+    // cout << "curr_average: " << curr_average << endl;
+    cout << "curr_k" << k << endl;
 
     // 颜色变换
     if (timer.stage == 0 && timer.task != TASK_STOP) {
         if (timer.next_color == blue && checkColorBarExist(raw_frame, blue)) {
+            cout << "recognized blue" << endl;
             timer.task = TASK_LIMIT;
             if (timer.laps == 1)
                 timer.next_color = violet;
             else
                 timer.next_color = green;
+            timer.stage = 1;
         } else if (timer.next_color == violet && checkColorBarExist(raw_frame, violet)) {
+            cout << "recognized violet" << endl;
             timer.task = TASK_RESIDENT;
             timer.next_color = green;
+            timer.stage = 1;
         } else if (timer.next_color == green && checkColorBarExist(raw_frame, green)) {
+            cout << "recognized green" << endl;
             timer.task = TASK_CROSS;
             if (timer.laps == 1)
                 timer.next_color = yellow;
             else
                 timer.next_color = red;
+            timer.stage = 1;
         } else if (timer.next_color == red && checkColorBarExist(raw_frame, red)) {
+            cout << "recognized red" << endl;
             timer.task = TASK_RESIDENT;
             timer.next_color = yellow;
+            timer.stage = 1;
         } else if (timer.next_color == yellow && checkColorBarExist(raw_frame, yellow)) {
-            timer.task = TASK_CROSS;
+            cout << "recognized yellow" << endl;
+            timer.task = TASK_UPSTAIR;
             timer.next_color = red;
             timer.laps++;
+            timer.stage = 1;
         }
-        timer.stage++;
     }
 
     // 动作变换
     if (timer.task == TASK_STOP) {
-        pose.gesture_type = 6;
-        pose.v_des[0] = pose.v_des[1] = pose.v_des[2];
+        pose.gesture_type = GES_STAND;
+        pose.v_des[0] = pose.v_des[1] = pose.v_des[2] = 0;
         pose.step_height = 0.04;
         pose.stand_height = 0.3;
     } else if (timer.task == TASK_TRACK) {
         goal_average = 200;
-        pose.gesture_type = 3;
+        pose.gesture_type = GES_MEDIUM_WALK;
         pose.step_height = 0.03;
         pose.stand_height = 0.3;
         pose.v_des[0] = 0.2;
-        pose.v_des[1] = 0.001f * (goal_average - curr_average);
-        pose.v_des[2] = 0.008f * (goal_average - curr_average);
+        pose.v_des[1] = 0.001f * (float) (goal_average - curr_average);
+        pose.v_des[2] = 0.008f * (float) (goal_average - curr_average);
+        pose.v_des[2] = (float) (0.8 * k);
         pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
     } else if (timer.task == TASK_LIMIT) {
         goal_average = 200;
         pose.gesture_type = 3;
         pose.step_height = 0.01;
-        pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
         pose.v_des[0] = 0.2;
-        pose.v_des[1] = 0.001f * (goal_average - curr_average);
-        pose.v_des[2] = 0.006f * (goal_average - curr_average);
-
+        pose.v_des[1] = 0.001f * (float) (goal_average - curr_average);
+        pose.v_des[2] = 0.006f * (float) (goal_average - curr_average);
+        pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
         if (timer.stage == 1)
             pose.stand_height = 0.2;
         else if (timer.stage == 2)
@@ -190,12 +271,13 @@ void ProcessFrame() {
         switch (timer.stage) {
             case 1: // prepare
                 pose.stand_height = 0.3;
-                pose.v_des[0] = 0.03;
+                pose.v_des[0] = 0.0;
+                // magic number
                 break;
             case 2: // dump
                 pose.stand_height = 0.3;
                 pose.v_des[0] = 0.0;
-                pose.gesture_type = 6;
+                pose.gesture_type = GES_STAND;
                 pose.rpy_des[0] = 0.3;
                 pose.control_mode = 3;
                 break;
@@ -228,14 +310,16 @@ void ProcessFrame() {
             pose.gesture_type = 3;
             pose.step_height = 0.03;
             pose.stand_height = 0.3;
+
+            pose.v_des[0] = 0.2; // 前进
+            pose.v_des[1] = 0.001f * (float) (curr_average - goal_average); // 横移
+            pose.v_des[2] = 0.008f * (float) (goal_average - curr_average); // 转向
             pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
-            pose.v_des[0] = 0.2;//前进
-            pose.v_des[1] = 0.001f * (curr_average - goal_average);//横移
-            pose.v_des[2] = 0.008f * (goal_average - curr_average);//转向
+
         } else {
+            goal_average = 180;
             if (timer.laps == 1) {
                 // left
-                goal_average = 180;
                 pose.gesture_type = 3;
                 pose.step_height = 0.04;
                 pose.stand_height = 0.3;
@@ -244,7 +328,6 @@ void ProcessFrame() {
                 pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
             } else {
                 // right
-                goal_average = 180;
                 pose.gesture_type = 3;
                 pose.step_height = 0.03;
                 pose.stand_height = 0.3;
@@ -257,10 +340,10 @@ void ProcessFrame() {
     } else if (timer.task == TASK_UPSTAIR) {
         goal_average = 180;
         pose.gesture_type = 3;
-        pose.step_height = 0.1;
+        pose.step_height = 0.09;
         pose.stand_height = 0.3;
         pose.v_des[0] = 0.3;
-        pose.v_des[1] = 0.005f * (goal_average - curr_average);
+        pose.v_des[1] = 0.005f * (float) (goal_average - curr_average);
         pose.rpy_des[0] = pose.rpy_des[1] = pose.rpy_des[2] = 0;
     }
 }
@@ -277,6 +360,17 @@ int main(int argc, char *argv[]) {
             // mode
             if (argv[i] == string("stop")) cout << "stop" << endl, timer.task = TASK_STOP;
             if (argv[i] == string("track")) cout << "track" << endl, timer.task = TASK_TRACK;
+            if (argv[i] == string("limit")) cout << "limit" << endl, timer.task = TASK_LIMIT;
+            if (argv[i] == string("resident")) cout << "resident" << endl, timer.task = TASK_RESIDENT;
+            if (argv[i] == string("upstair")) cout << "up stair" << endl, timer.task = TASK_UPSTAIR;
+
+            // color
+            if (argv[i] == string("blue")) cout << "next " << endl, timer.next_color = blue;
+            if (argv[i] == string("yellow")) cout << "next yellow" << endl, timer.next_color = yellow;
+            if (argv[i] == string("violet")) cout << "next violet" << endl, timer.next_color = violet;
+            if (argv[i] == string("green")) cout << "next green" << endl, timer.next_color = green;
+            if (argv[i] == string("red")) cout << "next red" << endl, timer.next_color = red;
+            if (argv[i] == string("orange")) cout << "next orange" << endl, timer.next_color = orange;
         }
     }
 
@@ -297,7 +391,7 @@ int main(int argc, char *argv[]) {
 
     // main thread
     timer.start_thread();
-    while (true) {
+    while (!timer.isInterruptionRequested()) {
         // reboot camera
         if (cap.get(CAP_PROP_FRAME_WIDTH) <= 0) {
             cap.release();
@@ -319,7 +413,7 @@ int main(int argc, char *argv[]) {
         cap >> raw_frame; // read raw_frame
         if (raw_frame.empty()) continue; // skip empty raw_frame
 
-        resize(raw_frame, raw_frame, Size(640, 480), 0, 0, INTER_LINEAR);
+        resize(raw_frame, raw_frame, Size(400, 300), 0, 0, INTER_LINEAR);
         GaussianBlur(raw_frame, raw_frame, Size(5, 5), 0, 0);
 
         ProcessFrame();

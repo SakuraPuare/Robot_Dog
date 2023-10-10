@@ -35,50 +35,50 @@ public:
             switch (task) {
                 case TASK_LIMIT: {
                     QThread::sleep(1);
-                    stage++;
+                    stage = 2;
                     QThread::sleep(6);
-                    stage++;
-                    QThread::msleep(10);
+                    stage = 3;
+                    QThread::sleep(1);
                     task = TASK_TRACK;
                     stage = 0;
                     break;
                 }
                 case TASK_RESIDENT: {
-                    QThread::sleep(5);
-                    stage++;
-                    QThread::sleep(5);
-                    stage++;
-                    QThread::sleep(10);
-                    stage++;
-                    QThread::sleep(5);
-                    stage++;
-                    QThread::sleep(15);
-                    stage++;
-                    QThread::sleep(10);
-                    stage++;
-                    QThread::msleep(10);
+                    QThread::sleep(2);
+                    stage = 2;
+                    QThread::sleep(4);
+                    stage = 3;
+                    QThread::sleep(4);
+                    stage = 4;
+                    QThread::sleep(4);
+                    stage = 5;
+                    QThread::sleep(8);
+                    stage = 6;
+                    QThread::sleep(12);
+                    stage = 7;
+                    QThread::sleep(7);
                     task = TASK_TRACK;
                     stage = 0;
                     break;
                 }
                 case TASK_CROSS: {
                     QThread::sleep(1);
-                    stage++;
-                    QThread::msleep(10);
+                    stage = 2;
+                    QThread::sleep(1);
                     task = TASK_TRACK;
                     stage = 0;
                     break;
                 }
                 case TASK_UPSTAIR: {
                     QThread::sleep(7);
-                    stage++;
-                    QThread::msleep(10);
+                    stage = 2;
+                    QThread::sleep(1);
                     task = TASK_TRACK;
                     stage = 0;
                     break;
                 }
             }
-            QThread::msleep(10);
+            QThread::msleep(50);
         }
 
         cout << "Running Time: "
